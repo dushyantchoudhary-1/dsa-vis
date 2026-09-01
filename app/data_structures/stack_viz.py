@@ -38,7 +38,15 @@ STACK_PSEUDO = {
         "end procedure",
     ],
 }
+STACK_QUESTIONS = {
+    "push": "Given a stack and an integer value, insert the value at the top of the stack using the Push operation.",
 
+    "pop": "Given a stack, remove the element from the top of the stack using the Pop operation.",
+
+    "peek": "Given a stack, view the element at the top without removing it.",
+
+    "clear": "Remove all elements from the stack and reset it to an empty state.",
+}
 
 class StackVisualizer:
     """In-memory stack with animated operations."""

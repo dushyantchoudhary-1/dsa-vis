@@ -67,7 +67,19 @@ BST_PSEUDO = {
         "end procedure",
     ],
 }
+BST_QUESTIONS = {
+    "insert": "Given a Binary Search Tree and an integer value, insert the value while maintaining the BST property.",
 
+    "search": "Given a Binary Search Tree and a target value, search for the target by following the appropriate left or right subtree.",
+
+    "inorder": "Given a Binary Search Tree, perform an inorder traversal and visit nodes in Left → Root → Right order.",
+
+    "preorder": "Given a Binary Search Tree, perform a preorder traversal and visit nodes in Root → Left → Right order.",
+
+    "postorder": "Given a Binary Search Tree, perform a postorder traversal and visit nodes in Left → Right → Root order.",
+
+    "clear": "Remove all nodes from the Binary Search Tree and reset it to an empty tree.",
+}
 
 # ── Tree helpers ─────────────────────────────────────────────────
 

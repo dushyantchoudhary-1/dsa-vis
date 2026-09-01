@@ -64,7 +64,17 @@ LL_PSEUDO = {
         "end procedure",
     ],
 }
+LL_QUESTIONS = {
+    "insert_head": "Given a singly linked list and an integer value, insert a new node at the beginning of the linked list.",
 
+    "insert_tail": "Given a singly linked list and an integer value, insert a new node at the end of the linked list.",
+
+    "delete": "Given a singly linked list and a value, find and delete the node containing that value.",
+
+    "search": "Given a singly linked list and a target value, search for the node containing that value.",
+
+    "clear": "Remove all nodes from the singly linked list and reset it to an empty list.",
+}
 
 class LinkedListVisualizer:
     """Singly linked list with animated operations."""

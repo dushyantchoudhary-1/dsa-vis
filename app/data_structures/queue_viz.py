@@ -38,7 +38,15 @@ QUEUE_PSEUDO = {
         "end procedure",
     ],
 }
+QUEUE_QUESTIONS = {
+    "enqueue": "Given a queue and an integer value, insert the value at the rear of the queue using the Enqueue operation.",
 
+    "dequeue": "Given a queue, remove the element from the front of the queue using the Dequeue operation.",
+
+    "front": "Given a queue, view the element at the front without removing it.",
+
+    "clear": "Remove all elements from the queue and reset it to an empty state.",
+}
 
 class QueueVisualizer:
     """In-memory queue with animated operations."""

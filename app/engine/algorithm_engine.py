@@ -77,6 +77,7 @@ class AlgorithmInfo:
     """Function that accepts input data and returns a Step generator."""
 
     operations: list[str] = field(default_factory=list)
+    question: str = ""
     """For data-structures: list of available operation names
     (e.g. ``['push', 'pop', 'peek']``)."""
 
