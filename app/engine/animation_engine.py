@@ -86,6 +86,14 @@ class AnimationEngine(QObject):
             self._index -= 1
             self.step_updated.emit(self._steps[self._index])
 
+    def seek(self, index: int) -> None:
+        """Jump directly to the step at index (pauses playback if running)."""
+        if not self._steps:
+            return
+        self.pause()
+        self._index = max(0, min(index, len(self._steps) - 1))
+        self.step_updated.emit(self._steps[self._index])
+
     def stop(self) -> None:
         self.pause()
         self._index = 0

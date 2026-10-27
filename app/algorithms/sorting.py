@@ -527,6 +527,112 @@ def quick_sort(data: list[int]) -> Generator[Step, None, None]:
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  Heap Sort
+# ═══════════════════════════════════════════════════════════════════
+
+HEAP_SORT_PSEUDO = [
+    "procedure heapSort(A, n)",
+    "  buildMaxHeap(A, n)",
+    "  for i ← n-1 down to 1",
+    "    swap(A[0], A[i])",
+    "    heapify(A, i, 0)",
+    "  end for",
+    "end procedure",
+    "",
+    "procedure heapify(A, n, i)",
+    "  largest ← i, l ← 2i+1, r ← 2i+2",
+    "  if l < n and A[l] > A[largest] largest ← l",
+    "  if r < n and A[r] > A[largest] largest ← r",
+    "  if largest ≠ i",
+    "    swap(A[i], A[largest])",
+    "    heapify(A, n, largest)",
+    "  end if",
+    "end procedure",
+]
+
+
+def heap_sort(data: list[int]) -> Generator[Step, None, None]:
+    arr = list(data)
+    n = len(arr)
+    stats = {"comparisons": 0, "swaps": 0}
+    sorted_indices = set()
+
+    yield Step(
+        data=list(arr),
+        highlights={},
+        pseudocode_line=0,
+        stats=dict(stats),
+        description=f"Starting Heap Sort on {n} elements.",
+    )
+
+    def heapify(size: int, root: int):
+        largest = root
+        l = 2 * root + 1
+        r = 2 * root + 2
+
+        if l < size:
+            stats["comparisons"] += 1
+            yield Step(
+                data=list(arr),
+                highlights={root: "comparing", l: "comparing", **{s: "sorted" for s in sorted_indices}},
+                pseudocode_line=9,
+                stats=dict(stats),
+                description=f"Comparing root A[{root}]={arr[root]} with left child A[{l}]={arr[l]}.",
+            )
+            if arr[l] > arr[largest]:
+                largest = l
+
+        if r < size:
+            stats["comparisons"] += 1
+            yield Step(
+                data=list(arr),
+                highlights={largest: "comparing", r: "comparing", **{s: "sorted" for s in sorted_indices}},
+                pseudocode_line=10,
+                stats=dict(stats),
+                description=f"Comparing largest candidate A[{largest}]={arr[largest]} with right child A[{r}]={arr[r]}.",
+            )
+            if arr[r] > arr[largest]:
+                largest = r
+
+        if largest != root:
+            stats["swaps"] += 1
+            arr[root], arr[largest] = arr[largest], arr[root]
+            yield Step(
+                data=list(arr),
+                highlights={root: "swapping", largest: "swapping", **{s: "sorted" for s in sorted_indices}},
+                pseudocode_line=12,
+                stats=dict(stats),
+                description=f"Swapped A[{root}] and A[{largest}] to satisfy max-heap property.",
+            )
+            yield from heapify(size, largest)
+
+    for i in range(n // 2 - 1, -1, -1):
+        yield from heapify(n, i)
+
+    for i in range(n - 1, 0, -1):
+        stats["swaps"] += 1
+        arr[0], arr[i] = arr[i], arr[0]
+        sorted_indices.add(i)
+        yield Step(
+            data=list(arr),
+            highlights={0: "swapping", i: "sorted", **{s: "sorted" for s in sorted_indices}},
+            pseudocode_line=3,
+            stats=dict(stats),
+            description=f"Moved maximum element A[0]={arr[i]} to sorted position at index {i}.",
+        )
+        yield from heapify(i, 0)
+
+    sorted_indices.add(0)
+    yield Step(
+        data=list(arr),
+        highlights={i: "sorted" for i in range(n)},
+        pseudocode_line=5,
+        stats=dict(stats),
+        description=f"Heap Sort complete! {stats['comparisons']} comparisons, {stats['swaps']} swaps.",
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  Registration
 # ═══════════════════════════════════════════════════════════════════
 
@@ -581,4 +687,14 @@ def register_sorting_algorithms() -> None:
         space_complexity="O(log n)",
         description="Picks a pivot, partitions around it, recursively sorts partitions.",
         generator_func=quick_sort,
+    ))
+    register(AlgorithmInfo(
+        key="heap_sort",
+        name="Heap Sort",
+        category="sorting",
+        pseudocode=HEAP_SORT_PSEUDO,
+        time_complexity="O(n log n)",
+        space_complexity="O(1)",
+        description="Builds a binary max-heap and repeatedly extracts the maximum element.",
+        generator_func=heap_sort,
     ))

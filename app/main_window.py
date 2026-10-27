@@ -1,23 +1,29 @@
 """
-Main window — orchestrates all widgets, the algorithm registry,
-and the animation engine.
+Main Window — Flagship Algorithm Playground & Interactive Learning Laboratory.
 
-Layout
-──────
-┌─────────┬───────────────────────┬────────────────┐
-│ Sidebar │   Canvas              │  Pseudocode    │
-│         │                       │  + Stats       │
-│         │                       │                │
-├─────────┴───────────────────────┴────────────────┤
-│  Controls bar                                    │
-│  Input panel                                     │
-└──────────────────────────────────────────────────┘
+Architecture:
+┌────────────────────────────────────────────────────────────────────────┐
+│  Top Application Bar: Logo • Algorithm Pill • Mode Switcher • Actions │
+├───────────────┬────────────────────────────────────────┬───────────────┤
+│  Algorithm    │  Central Workspace:                    │  Contextual   │
+│  Explorer     │  ┌──────────────────────────────────┐  │  Inspector    │
+│  (Collapsible │  │ Input Toolbar & Presets          │  │  (Tabs: Code, │
+│   Drawer with │  ├──────────────────────────────────┤  │   Insights,   │
+│   Live Search)│  │ Hero Visualization Canvas        │  │   Metrics,    │
+│               │  │ (Bars, 2D Grid Graph, DS Views)  │  │   Complexity) │
+│               │  ├──────────────────────────────────┤  │               │
+│               │  │ Playback Bar & Timeline Scrubber │  │               │
+│               │  └──────────────────────────────────┘  │               │
+└───────────────┴────────────────────────────────────────┴───────────────┘
 """
 
 from __future__ import annotations
 
+import sys
+from typing import Any
+
 from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -31,24 +37,25 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from app.theme import COLORS
+from app.theme import COLORS, get_category_config, apply_theme
 
-# Widgets
+# Redesigned Modern Widgets
 from app.widgets.sidebar import Sidebar
 from app.widgets.canvas import VisualizationCanvas
-from app.widgets.controls import ControlsBar
-from app.widgets.stats_panel import StatsPanel
-from app.widgets.pseudocode_panel import PseudocodePanel
-from app.widgets.input_panel import InputPanel
+from app.widgets.playback_bar import PlaybackBar
+from app.widgets.input_toolbar import InputToolbar
+from app.widgets.inspector_panel import InspectorPanel
 from app.widgets.ai_panel import AIPanel
 
 # Engine
 from app.engine.algorithm_engine import ALGORITHM_REGISTRY, Step
 from app.engine.animation_engine import AnimationEngine
 
-# Algorithm / DS registrations
+# Algorithm & Data Structure Registrations
 from app.algorithms.sorting import register_sorting_algorithms
 from app.algorithms.searching import register_searching_algorithms
+from app.algorithms.graph import register_graph_algorithms, create_default_grid
+from app.racing.racing_arena_window import RacingArenaWindow
 
 from app.data_structures.stack_viz import (
     StackVisualizer,
@@ -76,57 +83,45 @@ from app.data_structures.bst_viz import (
 
 
 class MainWindow(QMainWindow):
-    """Top-level application window."""
-
-    # ═══════════════════════════════════════════════════════════════
-    # INITIALIZATION
-    # ═══════════════════════════════════════════════════════════════
+    """Flagship DSA Playground Application Window."""
 
     def __init__(self) -> None:
         super().__init__()
 
-        self.setWindowTitle("DSA Visualizer with AI")
-        self.setMinimumSize(1200, 720)
-        self.resize(1440, 840)
+        self.setWindowTitle("DSA Lab — Interactive Algorithm Playground")
+        self.setMinimumSize(1020, 680)
+        self.resize(1440, 860)
+
+        # Ensure warm-light theme is applied
+        from PySide6.QtWidgets import QApplication
+        q_app = QApplication.instance()
+        if q_app and not q_app.styleSheet():
+            apply_theme(q_app)
 
         # ---------------------------------------------------------
-        # Register all algorithms / data structures
+        # 1. Register Algorithms & Data Structures
         # ---------------------------------------------------------
-
         register_sorting_algorithms()
         register_searching_algorithms()
+        register_graph_algorithms()
         register_stack()
         register_queue()
         register_linked_list()
         register_bst()
 
         # ---------------------------------------------------------
-        # Application state
+        # 2. Application State
         # ---------------------------------------------------------
-
         self._current_key: str = ""
-
-        # Current question
         self._current_question: str = ""
+        self._current_input: Any = None
+        self._current_output: Any = None
+        self._current_target: Any = None
+        self._current_graph_grid: dict | None = None
 
-        # Input given by the user
-        self._current_input = None
-
-        # Final output of the algorithm
-        self._current_output = None
-
-        # Search target
-        self._current_target = None
-
-        # Animation engine
+        # Engines & Dialogs
         self._engine = AnimationEngine(self)
-
-        # AI panel state
-        self._ai_visible = False
-
-        # ---------------------------------------------------------
-        # Persistent data structure instances
-        # ---------------------------------------------------------
+        self._racing_window: RacingArenaWindow | None = None
 
         self._ds_instances: dict = {
             "stack": StackVisualizer(),
@@ -136,1120 +131,691 @@ class MainWindow(QMainWindow):
         }
 
         # ---------------------------------------------------------
-        # Build UI
+        # 3. Build UI & Connect Signals
         # ---------------------------------------------------------
-
         self._build_ui()
         self._connect_signals()
+        self._setup_shortcuts()
+
+        # Default Selection: Bubble Sort
+        self._on_algorithm_selected("bubble_sort")
 
     # ═══════════════════════════════════════════════════════════════
-    # UI CONSTRUCTION
+    #  UI CONSTRUCTION
     # ═══════════════════════════════════════════════════════════════
 
     def _build_ui(self) -> None:
-
+        self.setStyleSheet(f"background-color: {COLORS['bg_primary']};")
         central = QWidget()
+        central.setStyleSheet(f"background-color: {COLORS['bg_primary']};")
         self.setCentralWidget(central)
-
         root = QVBoxLayout(central)
-
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ═════════════════════════════════════════════════════════
-        # TOP BAR
-        # ═════════════════════════════════════════════════════════
-
+        # ─────────────────────────────────────────────────────────
+        # 1. Top Application Bar
+        # ─────────────────────────────────────────────────────────
         top_bar = QWidget()
-        top_bar.setFixedHeight(48)
-
-        top_bar.setStyleSheet(
-            f"""
+        top_bar.setFixedHeight(52)
+        top_bar.setStyleSheet(f"""
             QWidget {{
-                background: {COLORS['bg_secondary']};
+                background-color: {COLORS['bg_secondary']};
                 border-bottom: 1px solid {COLORS['border']};
             }}
-            """
-        )
+        """)
+        tb_lay = QHBoxLayout(top_bar)
+        tb_lay.setContentsMargins(18, 0, 18, 0)
+        tb_lay.setSpacing(14)
 
-        tb_layout = QHBoxLayout(top_bar)
+        # Brand / Logo
+        brand_box = QHBoxLayout()
+        brand_box.setSpacing(8)
+        logo_lbl = QLabel("⚡")
+        logo_lbl.setFont(QFont("Segoe UI Emoji", 15))
+        brand_box.addWidget(logo_lbl)
 
-        tb_layout.setContentsMargins(
-            16,
-            0,
-            16,
-            0
-        )
+        brand_lbl = QLabel("DSA LAB")
+        brand_lbl.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        brand_lbl.setStyleSheet(f"color: {COLORS['text_primary']}; letter-spacing: 1.5px;")
+        brand_box.addWidget(brand_lbl)
+        tb_lay.addLayout(brand_box)
 
-        # Application title
+        tb_lay.addSpacing(10)
 
-        app_title = QLabel(
-            "🔬  DSA Visualizer"
-        )
+        # Active Algorithm & Complexity Pill (Initialised for Bubble Sort)
+        self._algo_badge = QFrame()
+        self._algo_badge.setStyleSheet("""
+            QFrame {
+                background-color: #FDF1EE;
+                border: 1px solid #EBB3A4;
+                border-radius: 14px;
+                padding: 2px 10px;
+            }
+        """)
+        badge_lay = QHBoxLayout(self._algo_badge)
+        badge_lay.setContentsMargins(8, 2, 8, 2)
+        badge_lay.setSpacing(8)
 
-        app_title.setFont(
-            QFont(
-                "Helvetica Neue",
-                15,
-                QFont.Weight.Bold
-            )
-        )
+        self._badge_name = QLabel("📊 Bubble Sort")
+        self._badge_name.setFont(QFont("Segoe UI", 11, QFont.Weight.DemiBold))
+        self._badge_name.setStyleSheet(f"color: {COLORS['text_primary']}; border: none; background: transparent;")
+        badge_lay.addWidget(self._badge_name)
 
-        app_title.setStyleSheet(
-            f"""
-            color: {COLORS['accent_cyan']};
-            background: transparent;
-            border: none;
-            """
-        )
+        self._badge_cx = QLabel("O(n²)")
+        self._badge_cx.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        self._badge_cx.setStyleSheet("""
+            color: #D96C4F;
+            background-color: #FFFFFF;
+            border: 1px solid #EBB3A4;
+            border-radius: 8px;
+            padding: 2px 6px;
+        """)
+        badge_lay.addWidget(self._badge_cx)
+        tb_lay.addWidget(self._algo_badge)
 
-        tb_layout.addWidget(
-            app_title
-        )
+        tb_lay.addStretch()
 
-        tb_layout.addStretch()
-
-        # Algorithm name
-
-        self._algo_name_label = QLabel("")
-
-        self._algo_name_label.setFont(
-            QFont(
-                "Helvetica Neue",
-                13
-            )
-        )
-
-        self._algo_name_label.setStyleSheet(
-            f"""
-            color: {COLORS['text_secondary']};
-            background: transparent;
-            border: none;
-            """
-        )
-
-        tb_layout.addWidget(
-            self._algo_name_label
-        )
-
-        tb_layout.addStretch()
-
-        # ═════════════════════════════════════════════════════════
-        # EXPORT PDF BUTTON
-        # ═════════════════════════════════════════════════════════
-
-        self._export_pdf_btn = QPushButton(
-            "🖨  Export PDF"
-        )
-
-        self._export_pdf_btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background: {COLORS['surface']};
+        # Center Mode Selector: Playground | Racing Arena
+        mode_box = QFrame()
+        mode_box.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS['bg_tertiary']};
                 border: 1px solid {COLORS['border']};
                 border-radius: 16px;
-                padding: 6px 16px;
-                color: {COLORS['accent_cyan']};
+            }}
+        """)
+        m_lay = QHBoxLayout(mode_box)
+        m_lay.setContentsMargins(3, 3, 3, 3)
+        m_lay.setSpacing(2)
+
+        self._btn_mode_vis = QPushButton("🔬 Playground")
+        self._btn_mode_vis.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #FFFFFF;
+                color: {COLORS['text_primary']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 13px;
+                padding: 5px 14px;
                 font-weight: 600;
-                font-size: 12px;
+                font-size: 11px;
             }}
+        """)
+        m_lay.addWidget(self._btn_mode_vis)
 
+        self._btn_mode_arena = QPushButton("🏁 Racing Arena")
+        self._btn_mode_arena.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {COLORS['text_muted']};
+                border: none;
+                border-radius: 13px;
+                padding: 5px 14px;
+                font-weight: 600;
+                font-size: 11px;
+            }}
             QPushButton:hover {{
-                background: {COLORS['surface_hover']};
-                border-color: {COLORS['accent_cyan']};
+                background-color: #FDF0ED;
+                color: #D95F42;
             }}
-            """
-        )
+        """)
+        self._btn_mode_arena.clicked.connect(self._open_racing_arena)
+        m_lay.addWidget(self._btn_mode_arena)
+        tb_lay.addWidget(mode_box)
 
-        tb_layout.addWidget(
-            self._export_pdf_btn
-        )
+        tb_lay.addStretch()
 
-        # ═════════════════════════════════════════════════════════
-        # AI TUTOR BUTTON
-        # ═════════════════════════════════════════════════════════
+        # Action: Export PDF Report
+        self._export_pdf_btn = QPushButton("🖨  Export Report")
+        self._export_pdf_btn.setToolTip("Export current algorithm run as a PDF study sheet")
+        self._export_pdf_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                padding: 6px 14px;
+                color: {COLORS['text_primary']};
+                font-weight: 600;
+                font-size: 11px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['bg_tertiary']};
+                border-color: {COLORS['text_muted']};
+                color: {COLORS['text_primary']};
+            }}
+        """)
+        self._export_pdf_btn.clicked.connect(self._export_pdf)
+        tb_lay.addWidget(self._export_pdf_btn)
 
-        self._ai_toggle_btn = self._make_ai_toggle()
+        # Action: AI Tutor Drawer Toggle
+        self._ai_toggle_btn = QPushButton("🤖  AI Tutor")
+        self._ai_toggle_btn.setToolTip("Toggle AI Pedagogical Assistant")
+        self._ai_toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                padding: 6px 14px;
+                color: {COLORS['text_primary']};
+                font-weight: 600;
+                font-size: 11px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['surface_hover']};
+                border-color: #34785B;
+                color: #34785B;
+            }}
+        """)
+        self._ai_toggle_btn.clicked.connect(self._toggle_ai_panel)
+        tb_lay.addWidget(self._ai_toggle_btn)
 
-        tb_layout.addWidget(
-            self._ai_toggle_btn
-        )
+        root.addWidget(top_bar)
 
-        root.addWidget(
-            top_bar
-        )
+        # ─────────────────────────────────────────────────────────
+        # 2. Main Workspace Splitter
+        # ─────────────────────────────────────────────────────────
+        self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._main_splitter.setHandleWidth(1)
 
-        # ═════════════════════════════════════════════════════════
-        # BODY
-        # ═════════════════════════════════════════════════════════
-
-        body = QHBoxLayout()
-
-        body.setContentsMargins(
-            0,
-            0,
-            0,
-            0
-        )
-
-        body.setSpacing(0)
-
-        # ═════════════════════════════════════════════════════════
-        # SIDEBAR
-        # ═════════════════════════════════════════════════════════
-
+        # A. Left: Algorithm Explorer Sidebar
         self._sidebar = Sidebar()
+        self._main_splitter.addWidget(self._sidebar)
 
-        body.addWidget(
-            self._sidebar
-        )
+        # B. Center: Main Visualization Workspace
+        center_workspace = QWidget()
+        center_workspace.setStyleSheet(f"background-color: {COLORS['bg_primary']};")
+        c_lay = QVBoxLayout(center_workspace)
+        c_lay.setContentsMargins(10, 10, 10, 10)
+        c_lay.setSpacing(10)
 
-        # Separator
+        # Top docked input configuration toolbar
+        self._input_toolbar = InputToolbar()
+        c_lay.addWidget(self._input_toolbar)
 
-        sep1 = QFrame()
-
-        sep1.setFrameShape(
-            QFrame.Shape.VLine
-        )
-
-        sep1.setStyleSheet(
-            f"color: {COLORS['border']};"
-        )
-
-        body.addWidget(
-            sep1
-        )
-
-        # ═════════════════════════════════════════════════════════
-        # MAIN SPLITTER
-        # ═════════════════════════════════════════════════════════
-
-        self._splitter = QSplitter(
-            Qt.Orientation.Horizontal
-        )
-
-        self._splitter.setHandleWidth(8)
-
-        # ═════════════════════════════════════════════════════════
-        # CANVAS
-        # ═════════════════════════════════════════════════════════
-
+        # Hero Visualization Canvas
         self._canvas = VisualizationCanvas()
+        c_lay.addWidget(self._canvas, 1)
 
-        self._splitter.addWidget(
-            self._canvas
-        )
+        # Bottom docked playback bar & scrubbable timeline
+        self._controls = PlaybackBar()
+        c_lay.addWidget(self._controls)
 
-        # ═════════════════════════════════════════════════════════
-        # RIGHT SPLITTER
-        # ═════════════════════════════════════════════════════════
+        self._main_splitter.addWidget(center_workspace)
 
-        self._right_splitter = QSplitter(
-            Qt.Orientation.Vertical
-        )
+        # C. Right: Contextual Tabbed Inspector
+        self._inspector = InspectorPanel()
+        self._main_splitter.addWidget(self._inspector)
 
-        self._right_splitter.setHandleWidth(6)
-
-        # Pseudocode panel
-
-        self._pseudocode_panel = PseudocodePanel()
-
-        self._right_splitter.addWidget(
-            self._pseudocode_panel
-        )
-
-        # Statistics panel
-
-        self._stats_panel = StatsPanel()
-
-        self._right_splitter.addWidget(
-            self._stats_panel
-        )
-
-        self._right_splitter.setSizes(
-            [300, 500]
-        )
-
-        # Maximize buttons
-
-        self._pseudocode_panel.maximize_requested.connect(
-            self._maximize_pseudocode
-        )
-
-        self._stats_panel.maximize_requested.connect(
-            self._maximize_stats
-        )
-
-        # Add right panel
-
-        self._splitter.addWidget(
-            self._right_splitter
-        )
-
-        self._splitter.setSizes(
-            [700, 420]
-        )
-
-        body.addWidget(
-            self._splitter,
-            1
-        )
-
-        # ═════════════════════════════════════════════════════════
-        # AI PANEL
-        # ═════════════════════════════════════════════════════════
-
+        # D. Far Right: AI Tutor Panel (initially hidden)
         self._ai_panel = AIPanel()
-
         self._ai_panel.hide()
+        self._main_splitter.addWidget(self._ai_panel)
 
-        body.addWidget(
-            self._ai_panel
-        )
+        # Configure splitter ratio: [Sidebar: 270, Center: 810, Inspector: 360]
+        self._main_splitter.setSizes([270, 810, 360, 0])
+        self._main_splitter.setCollapsible(0, True)
+        self._main_splitter.setCollapsible(1, False)
+        self._main_splitter.setCollapsible(2, True)
 
-        body_widget = QWidget()
-
-        body_widget.setLayout(
-            body
-        )
-
-        root.addWidget(
-            body_widget,
-            1
-        )
-
-        # ═════════════════════════════════════════════════════════
-        # BOTTOM CONTROLS
-        # ═════════════════════════════════════════════════════════
-
-        bottom = QWidget()
-
-        bottom.setStyleSheet(
-            f"""
-            QWidget {{
-                background: {COLORS['bg_secondary']};
-                border-top: 1px solid {COLORS['border']};
-            }}
-            """
-        )
-
-        bottom_lay = QVBoxLayout(bottom)
-
-        bottom_lay.setContentsMargins(
-            0,
-            0,
-            0,
-            0
-        )
-
-        bottom_lay.setSpacing(0)
-
-        # Controls
-
-        self._controls = ControlsBar()
-
-        bottom_lay.addWidget(
-            self._controls
-        )
-
-        # Separator
-
-        sep_b = QFrame()
-
-        sep_b.setFrameShape(
-            QFrame.Shape.HLine
-        )
-
-        sep_b.setStyleSheet(
-            f"color: {COLORS['border']};"
-        )
-
-        bottom_lay.addWidget(
-            sep_b
-        )
-
-        # Input panel
-
-        self._input_panel = InputPanel()
-
-        bottom_lay.addWidget(
-            self._input_panel
-        )
-
-        root.addWidget(
-            bottom
-        )
+        root.addWidget(self._main_splitter, 1)
 
     # ═══════════════════════════════════════════════════════════════
-    # MAXIMIZE PSEUDOCODE
-    # ═══════════════════════════════════════════════════════════════
-
-    def _maximize_pseudocode(self) -> None:
-
-        if self._stats_panel.isVisible():
-
-            self._stats_panel.hide()
-
-        else:
-
-            self._stats_panel.show()
-
-            self._right_splitter.setSizes(
-                [300, 500]
-            )
-
-    # ═══════════════════════════════════════════════════════════════
-    # MAXIMIZE STATS
-    # ═══════════════════════════════════════════════════════════════
-
-    def _maximize_stats(self) -> None:
-
-        if self._pseudocode_panel.isVisible():
-
-            self._pseudocode_panel.hide()
-
-        else:
-
-            self._pseudocode_panel.show()
-
-            self._right_splitter.setSizes(
-                [300, 500]
-            )
-
-    # ═══════════════════════════════════════════════════════════════
-    # AI BUTTON
-    # ═══════════════════════════════════════════════════════════════
-
-    def _make_ai_toggle(self):
-
-        btn = QPushButton(
-            "🤖  AI Tutor"
-        )
-
-        btn.setStyleSheet(
-            f"""
-            QPushButton {{
-                background: {COLORS['surface']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 16px;
-                padding: 6px 16px;
-                color: {COLORS['accent_cyan']};
-                font-weight: 600;
-                font-size: 12px;
-            }}
-
-            QPushButton:hover {{
-                background: {COLORS['surface_hover']};
-                border-color: {COLORS['accent_cyan']};
-            }}
-            """
-        )
-
-        btn.clicked.connect(
-            self._toggle_ai_panel
-        )
-
-        return btn
-
-    # ═══════════════════════════════════════════════════════════════
-    # SIGNAL WIRING
+    #  SIGNAL WIRING
     # ═══════════════════════════════════════════════════════════════
 
     def _connect_signals(self) -> None:
-
         # Sidebar
+        self._sidebar.algorithm_selected.connect(self._on_algorithm_selected)
+        self._sidebar.racing_arena_requested.connect(self._open_racing_arena)
+        self._sidebar.collapse_toggled.connect(self._on_sidebar_collapse)
 
-        self._sidebar.algorithm_selected.connect(
-            self._on_algorithm_selected
-        )
+        # Input Toolbar
+        self._input_toolbar.run_requested.connect(self._on_run_sort)
+        self._input_toolbar.run_search_requested.connect(self._on_run_search)
+        self._input_toolbar.ds_operation.connect(self._on_ds_operation)
+        self._input_toolbar.graph_config_requested.connect(self._on_run_graph)
 
-        # Controls
+        # Canvas Interactions
+        self._canvas.wall_toggled.connect(self._input_toolbar.toggle_wall)
 
-        self._controls.play_clicked.connect(
-            self._on_play
-        )
+        # Playback Controls
+        self._controls.play_clicked.connect(self._on_play)
+        self._controls.pause_clicked.connect(self._on_pause)
+        self._controls.step_forward_clicked.connect(self._on_step_forward)
+        self._controls.step_backward_clicked.connect(self._on_step_backward)
+        self._controls.reset_clicked.connect(self._on_reset)
+        self._controls.speed_changed.connect(self._engine.set_speed)
+        self._controls.seek_requested.connect(self._engine.seek)
 
-        self._controls.pause_clicked.connect(
-            self._on_pause
-        )
+        # Animation Engine
+        self._engine.step_updated.connect(self._on_step_updated)
+        self._engine.animation_finished.connect(self._on_animation_finished)
 
-        self._controls.step_forward_clicked.connect(
-            self._on_step_forward
-        )
+        # AI Panel
+        self._ai_panel.close_requested.connect(self._on_ai_closed)
 
-        self._controls.step_backward_clicked.connect(
-            self._on_step_backward
-        )
+        # Inspector maximize
+        self._inspector.maximize_requested.connect(self._toggle_inspector_maximize)
 
-        self._controls.reset_clicked.connect(
-            self._on_reset
-        )
+    def _setup_shortcuts(self) -> None:
+        """Register keyboard shortcuts for developer tool feel."""
+        QShortcut(QKeySequence(Qt.Key.Key_Space), self, self._on_shortcut_space)
+        QShortcut(QKeySequence(Qt.Key.Key_Left), self, self._on_step_backward)
+        QShortcut(QKeySequence(Qt.Key.Key_Right), self, self._on_step_forward)
+        QShortcut(QKeySequence("R"), self, self._on_reset)
+        QShortcut(QKeySequence("Ctrl+F"), self, lambda: self._sidebar.search_input.setFocus())
 
-        self._controls.speed_changed.connect(
-            self._engine.set_speed
-        )
-
-        # Engine → UI
-
-        self._engine.step_updated.connect(
-            self._on_step_updated
-        )
-
-        self._engine.animation_finished.connect(
-            self._on_animation_finished
-        )
-
-        # Input panel
-
-        self._input_panel.run_requested.connect(
-            self._on_run_sort
-        )
-
-        self._input_panel.run_search_requested.connect(
-            self._on_run_search
-        )
-
-        self._input_panel.ds_operation.connect(
-            self._on_ds_operation
-        )
-
-        # PDF
-
-        self._export_pdf_btn.clicked.connect(
-            self._export_pdf
-        )
+    def _on_shortcut_space(self) -> None:
+        if self._engine.is_playing:
+            self._on_pause()
+        else:
+            self._on_play()
 
     # ═══════════════════════════════════════════════════════════════
-    # ALGORITHM SELECTED
+    #  ALGORITHM SELECTION
     # ═══════════════════════════════════════════════════════════════
 
     @Slot(str)
-    def _on_algorithm_selected(
-        self,
-        key: str
-    ) -> None:
-
+    def _on_algorithm_selected(self, key: str) -> None:
         self._current_key = key
-
-        # Reset input/output
-
         self._current_input = None
         self._current_output = None
         self._current_target = None
+        self._current_graph_grid = None
 
-        info = ALGORITHM_REGISTRY.get(
-            key
-        )
-
+        info = ALGORITHM_REGISTRY.get(key)
         if info is None:
             return
 
-        # ---------------------------------------------------------
-        # Get question from AlgorithmInfo if available
-        # ---------------------------------------------------------
+        # 1. Update Top Bar Badge & Sidebar Highlight
+        cat_cfg = get_category_config(key)
+        self._algo_badge.setStyleSheet(f"""
+            QFrame {{
+                background-color: {cat_cfg['light']};
+                border: 1px solid {cat_cfg['border']};
+                border-radius: 14px;
+                padding: 2px 10px;
+            }}
+        """)
+        self._badge_name.setText(f"{cat_cfg['icon']}  {info.name}")
+        self._badge_name.setStyleSheet(f"color: {COLORS['text_primary']}; border: none; background: transparent; font-weight: 600;")
+        self._badge_cx.setText(info.time_complexity)
+        self._badge_cx.setStyleSheet(f"""
+            color: {cat_cfg['accent']};
+            background-color: #FFFFFF;
+            border: 1px solid {cat_cfg['border']};
+            border-radius: 8px;
+            padding: 2px 6px;
+        """)
+        self._inspector.set_algorithm_key(key)
+        self._sidebar.select_algorithm(key)
 
-        self._current_question = getattr(
-            info,
-            "question",
-            ""
-        )
-
-        # If no question exists, automatically create one
-
+        # 2. Update Question
+        self._current_question = getattr(info, "question", "")
         if not self._current_question:
+            self._current_question = f"Analyze and trace the {info.name} algorithm execution."
 
-            self._current_question = (
-                f"Use the {info.name} algorithm "
-                f"to solve the given problem."
-            )
-
-        # ---------------------------------------------------------
-        # Algorithm name
-        # ---------------------------------------------------------
-
-        self._algo_name_label.setText(
-            f"{info.name}  •  "
-            f"{info.time_complexity}"
+        # 3. Configure Contextual Inspector
+        self._inspector.set_pseudocode(info.pseudocode)
+        self._inspector.set_complexity(
+            time_cx=info.time_complexity,
+            space_cx=info.space_complexity,
+            name=info.name,
+            desc=info.description,
         )
+        self._inspector.reset()
 
-        # ---------------------------------------------------------
-        # Pseudocode
-        # ---------------------------------------------------------
-
-        self._pseudocode_panel.set_pseudocode(
-            info.pseudocode
-        )
-
-        self._pseudocode_panel.clear_highlight()
-
-        # ---------------------------------------------------------
-        # Statistics
-        # ---------------------------------------------------------
-
-        self._stats_panel.set_complexity(
-            info.time_complexity,
-            info.space_complexity
-        )
-
-        self._stats_panel.reset()
-
-        # ---------------------------------------------------------
-        # Reset engine/canvas
-        # ---------------------------------------------------------
-
+        # 4. Reset Engine & Prepare Initial Canvas Preview
         self._engine.clear()
+        self._canvas.set_algorithm_info(info.name, info.time_complexity, key=key)
 
-        self._canvas.clear_canvas()
-
-        # ---------------------------------------------------------
-        # Configure input panel
-        # ---------------------------------------------------------
-
+        # 5. Set Input Toolbar Mode & Initial Run
         if info.category == "data_structure":
-
-            self._input_panel.set_mode(
-                "data_structure",
-                info.operations
-            )
-
+            self._input_toolbar.set_mode("data_structure", info.operations)
+            ds = self._ds_instances.get(key)
+            if ds and hasattr(ds, "_items"):
+                self._canvas.set_preview_data(list(ds._items), mode=key)
+            elif key == "bst":
+                self._canvas.set_preview_data(ds._root if hasattr(ds, "_root") else None, mode="bst")
         elif info.category == "searching":
-
-            self._input_panel.set_mode(
-                "searching"
-            )
-
+            self._input_toolbar.set_mode("searching")
+            self._input_toolbar._on_apply_clicked()
+        elif info.category == "graph":
+            self._input_toolbar.set_mode("graph")
+            self._input_toolbar._on_run_graph_clicked()
         else:
+            self._input_toolbar.set_mode("sorting")
+            self._input_toolbar._on_apply_clicked()
 
-            self._input_panel.set_mode(
-                "sorting"
-            )
+        # 6. Inform AI Panel
+        self._ai_panel.set_algorithm(info)
 
     # ═══════════════════════════════════════════════════════════════
-    # RUN SORTING
+    #  EXECUTION: SORTING, SEARCHING, GRAPH, DS
     # ═══════════════════════════════════════════════════════════════
 
     @Slot(list)
-    def _on_run_sort(
-        self,
-        data: list[int]
-    ) -> None:
-
-        info = ALGORITHM_REGISTRY.get(
-            self._current_key
-        )
-
-        if (
-            info is None
-            or info.generator_func is None
-        ):
+    def _on_run_sort(self, data: list[int]) -> None:
+        info = ALGORITHM_REGISTRY.get(self._current_key)
+        if info is None or info.generator_func is None:
             return
 
-        # ---------------------------------------------------------
-        # SAVE INPUT
-        # ---------------------------------------------------------
-
         self._current_input = list(data)
-
         self._current_target = None
 
-        # ---------------------------------------------------------
-        # SAVE QUESTION
-        # ---------------------------------------------------------
-
-        self._current_question = getattr(
-            info,
-            "question",
-            ""
-        )
-
-        if not self._current_question:
-
-            self._current_question = (
-                f"Given an array of integers, "
-                f"sort the array in ascending order "
-                f"using the {info.name} algorithm."
-            )
-
-        # ---------------------------------------------------------
-        # RUN GENERATOR
-        # ---------------------------------------------------------
-
-        gen = info.generator_func(
-            data
-        )
-
-        self._engine.load(
-            gen
-        )
-
-        # ---------------------------------------------------------
-        # Get final output
-        # ---------------------------------------------------------
-
+        # Pre-compute steps
+        gen = info.generator_func(list(data))
+        self._engine.load(gen)
         self._update_final_output()
 
-    # ═══════════════════════════════════════════════════════════════
-    # RUN SEARCH
-    # ═══════════════════════════════════════════════════════════════
+        self._ai_panel.set_input_context(
+            input_data=self._current_input,
+            target=self._current_target,
+            question=self._current_question,
+        )
 
     @Slot(list, int)
-    def _on_run_search(
-        self,
-        data: list[int],
-        target: int
-    ) -> None:
-
-        info = ALGORITHM_REGISTRY.get(
-            self._current_key
-        )
-
-        if (
-            info is None
-            or info.generator_func is None
-        ):
+    def _on_run_search(self, data: list[int], target: int) -> None:
+        info = ALGORITHM_REGISTRY.get(self._current_key)
+        if info is None or info.generator_func is None:
             return
 
-        # ---------------------------------------------------------
-        # SAVE INPUT
-        # ---------------------------------------------------------
+        # Binary search requires sorted array
+        if self._current_key == "binary_search":
+            data = sorted(data)
+            self._input_toolbar.data_input.setText(", ".join(str(x) for x in data))
 
         self._current_input = list(data)
-
         self._current_target = target
 
-        # ---------------------------------------------------------
-        # SAVE QUESTION
-        # ---------------------------------------------------------
-
-        self._current_question = getattr(
-            info,
-            "question",
-            ""
-        )
-
-        if not self._current_question:
-
-            self._current_question = (
-                f"Given an array of integers and a target value, "
-                f"find the target using the {info.name} algorithm."
-            )
-
-        # ---------------------------------------------------------
-        # RUN GENERATOR
-        # ---------------------------------------------------------
-
-        gen = info.generator_func(
-            data,
-            target
-        )
-
-        self._engine.load(
-            gen
-        )
-
-        # ---------------------------------------------------------
-        # Get final output
-        # ---------------------------------------------------------
-
+        gen = info.generator_func(list(data), target)
+        self._engine.load(gen)
         self._update_final_output()
 
-    # ═══════════════════════════════════════════════════════════════
-    # DATA STRUCTURE OPERATIONS
-    # ═══════════════════════════════════════════════════════════════
-
-    @Slot(str, int)
-    def _on_ds_operation(
-        self,
-        operation: str,
-        value: int
-    ) -> None:
-
-        key = self._current_key
-
-        ds = self._ds_instances.get(
-            key
+        self._ai_panel.set_input_context(
+            input_data=self._current_input,
+            target=self._current_target,
+            question=self._current_question,
         )
 
+    @Slot(dict)
+    def _on_run_graph(self, grid_info: dict) -> None:
+        info = ALGORITHM_REGISTRY.get(self._current_key)
+        if info is None or info.generator_func is None:
+            return
+
+        self._current_graph_grid = grid_info
+        self._current_input = f"Grid: {grid_info['rows']}x{grid_info['cols']} from {grid_info['start']} to {grid_info['goal']}"
+
+        gen = info.generator_func(grid_info)
+        self._engine.load(gen)
+        self._update_final_output()
+
+        self._ai_panel.set_input_context(
+            input_data=self._current_input,
+            target=f"Goal: {grid_info['goal']}",
+            question=self._current_question,
+        )
+
+    @Slot(str, int)
+    def _on_ds_operation(self, operation: str, value: int) -> None:
+        key = self._current_key
+        ds = self._ds_instances.get(key)
         if ds is None:
             return
 
-        # ---------------------------------------------------------
-        # Save operation as input
-        # ---------------------------------------------------------
-
         self._current_input = value
-
         self._current_output = None
 
-        # ---------------------------------------------------------
-        # Pseudocode
-        # ---------------------------------------------------------
-
+        # Update pseudocode for this operation
         pseudo_map = {
             "stack": STACK_PSEUDO,
             "queue": QUEUE_PSEUDO,
             "linked_list": LL_PSEUDO,
             "bst": BST_PSEUDO,
         }
-
-        pm = pseudo_map.get(
-            key,
-            {}
-        )
-
+        pm = pseudo_map.get(key, {})
         if operation in pm:
+            self._inspector.set_pseudocode(pm[operation])
 
-            self._pseudocode_panel.set_pseudocode(
-                pm[operation]
-            )
+        readable_op = operation.replace("_", " ").title()
+        self._current_question = f"Perform {readable_op} operation on {info_name(key)}."
 
-        # ---------------------------------------------------------
-        # Generate question automatically
-        # ---------------------------------------------------------
-
-        readable_operation = operation.replace(
-            "_",
-            " "
-        ).title()
-
-        self._current_question = (
-            f"Perform the {readable_operation} operation "
-            f"on the {info_name(key)}."
-        )
-
-        # ---------------------------------------------------------
         # Dispatch operation
-        # ---------------------------------------------------------
-
         gen = None
-
-        # Stack
-
         if key == "stack":
-
             if operation == "push":
-
                 gen = ds.push(value)
-
             elif operation == "pop":
-
                 gen = ds.pop()
-
             elif operation == "peek":
-
                 gen = ds.peek()
-
             elif operation == "clear":
-
                 gen = ds.clear()
-
-        # Queue
-
         elif key == "queue":
-
             if operation == "enqueue":
-
                 gen = ds.enqueue(value)
-
             elif operation == "dequeue":
-
                 gen = ds.dequeue()
-
             elif operation == "front":
-
-                gen = ds.front_peek()
-
+                gen = ds.front()
             elif operation == "clear":
-
                 gen = ds.clear()
-
-        # Linked List
-
         elif key == "linked_list":
-
             if operation == "insert_head":
-
                 gen = ds.insert_head(value)
-
             elif operation == "insert_tail":
-
                 gen = ds.insert_tail(value)
-
             elif operation == "delete":
-
-                gen = ds.delete_value(value)
-
+                gen = ds.delete(value)
             elif operation == "search":
-
                 gen = ds.search(value)
-
             elif operation == "clear":
-
                 gen = ds.clear()
-
-        # BST
-
         elif key == "bst":
-
             if operation == "insert":
-
                 gen = ds.insert(value)
-
             elif operation == "search":
-
                 gen = ds.search(value)
-
             elif operation == "inorder":
-
                 gen = ds.inorder()
-
             elif operation == "preorder":
-
                 gen = ds.preorder()
-
             elif operation == "postorder":
-
                 gen = ds.postorder()
-
             elif operation == "clear":
-
                 gen = ds.clear()
-
-        # ---------------------------------------------------------
-        # Load animation
-        # ---------------------------------------------------------
 
         if gen is not None:
-
-            self._engine.load(
-                gen
+            self._engine.load(gen)
+            self._update_final_output()
+            self._ai_panel.set_input_context(
+                input_data=f"{operation}({value})",
+                target=None,
+                question=self._current_question,
             )
 
-            self._update_final_output()
-
     # ═══════════════════════════════════════════════════════════════
-    # UPDATE FINAL OUTPUT
-    # ═══════════════════════════════════════════════════════════════
-
-    def _update_final_output(self) -> None:
-        """
-        Get the final state from the animation engine.
-
-        The engine pre-computes all generator steps, so the final
-        Step contains the final data state.
-        """
-
-        try:
-
-            if self._engine.total_steps <= 0:
-                return
-
-            # Save current index
-
-            old_index = self._engine.current_index
-
-            # Get final step
-
-            final_step = self._engine._steps[
-                -1
-            ]
-
-            self._current_output = final_step.data
-
-            # Restore current index
-
-            self._engine._current_index = old_index
-
-        except Exception:
-
-            self._current_output = None
-
-    # ═══════════════════════════════════════════════════════════════
-    # STEP UPDATED
+    #  STEP SYNCHRONIZATION
     # ═══════════════════════════════════════════════════════════════
 
     @Slot(object)
-    def _on_step_updated(
-        self,
-        step: Step
-    ) -> None:
+    def _on_step_updated(self, step: Step) -> None:
+        # Canvas
+        self._canvas.update_step(step)
 
-        self._canvas.update_step(
-            step
-        )
+        # Inspector Tabs
+        self._inspector.highlight_line(step.pseudocode_line)
+        self._inspector.update_stats(step.stats)
+        self._inspector.set_description(step.description)
+        self._inspector.update_progress(self._engine.current_index, self._engine.total_steps)
 
-        self._pseudocode_panel.highlight_line(
-            step.pseudocode_line
-        )
+        # Playback Controls & Timeline Scrubber
+        self._controls.update_step_counter(self._engine.current_index, self._engine.total_steps)
 
-        self._stats_panel.update_stats(
-            step.stats
-        )
-
-        self._stats_panel.set_description(
-            step.description
-        )
-
-        self._controls.update_step_counter(
-            self._engine.current_index,
-            self._engine.total_steps
-        )
-
-    # ═══════════════════════════════════════════════════════════════
-    # PLAY
-    # ═══════════════════════════════════════════════════════════════
+        # AI Tutor
+        self._ai_panel.set_step(step, self._engine.current_index, self._engine.total_steps)
 
     @Slot()
     def _on_play(self) -> None:
-
         self._engine.play()
-
-        self._controls.set_playing(
-            True
-        )
-
-    # ═══════════════════════════════════════════════════════════════
-    # PAUSE
-    # ═══════════════════════════════════════════════════════════════
+        self._controls.set_playing(True)
 
     @Slot()
     def _on_pause(self) -> None:
-
         self._engine.pause()
-
-        self._controls.set_playing(
-            False
-        )
-
-    # ═══════════════════════════════════════════════════════════════
-    # STEP FORWARD
-    # ═══════════════════════════════════════════════════════════════
+        self._controls.set_playing(False)
 
     @Slot()
     def _on_step_forward(self) -> None:
-
         self._engine.step_forward()
-
-        self._controls.set_playing(
-            False
-        )
-
-    # ═══════════════════════════════════════════════════════════════
-    # STEP BACKWARD
-    # ═══════════════════════════════════════════════════════════════
+        self._controls.set_playing(False)
 
     @Slot()
     def _on_step_backward(self) -> None:
-
         self._engine.step_backward()
-
-        self._controls.set_playing(
-            False
-        )
-
-    # ═══════════════════════════════════════════════════════════════
-    # RESET
-    # ═══════════════════════════════════════════════════════════════
+        self._controls.set_playing(False)
 
     @Slot()
     def _on_reset(self) -> None:
-
         self._engine.reset()
-
-        self._controls.set_playing(
-            False
-        )
-
-    # ═══════════════════════════════════════════════════════════════
-    # ANIMATION FINISHED
-    # ═══════════════════════════════════════════════════════════════
+        self._controls.set_playing(False)
 
     @Slot()
     def _on_animation_finished(self) -> None:
+        self._controls.set_playing(False)
 
-        self._controls.set_playing(
-            False
-        )
+    def _update_final_output(self) -> None:
+        try:
+            if self._engine.total_steps <= 0:
+                return
+            final_step = self._engine._steps[-1]
+            self._current_output = final_step.data
+        except Exception:
+            self._current_output = None
 
     # ═══════════════════════════════════════════════════════════════
-    # AI PANEL
+    #  PANEL TOGGLES & RACING ARENA
     # ═══════════════════════════════════════════════════════════════
 
     @Slot()
     def _toggle_ai_panel(self) -> None:
+        if self._ai_panel.isVisible():
+            self._ai_panel.hide()
+            sizes = self._main_splitter.sizes()
+            sizes[3] = 0
+            self._main_splitter.setSizes(sizes)
+            self._ai_toggle_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS['surface']};
+                    border: 1px solid {COLORS['border']};
+                    border-radius: 8px;
+                    padding: 6px 14px;
+                    color: {COLORS['text_primary']};
+                    font-weight: 600;
+                    font-size: 11px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS['surface_hover']};
+                    border-color: #34785B;
+                    color: #34785B;
+                }}
+            """)
+        else:
+            self._ai_panel.show()
+            sizes = self._main_splitter.sizes()
+            sizes[3] = 360
+            if sizes[1] > 600:
+                sizes[1] = max(400, sizes[1] - 360)
+            self._main_splitter.setSizes(sizes)
+            self._ai_toggle_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #34785B;
+                    border: 1px solid #34785B;
+                    border-radius: 8px;
+                    padding: 6px 14px;
+                    color: #ffffff;
+                    font-weight: 600;
+                    font-size: 11px;
+                }
+                QPushButton:hover {
+                    background-color: #2B644B;
+                }
+            """)
 
-        self._ai_visible = not self._ai_visible
+    @Slot()
+    def _on_ai_closed(self) -> None:
+        sizes = self._main_splitter.sizes()
+        sizes[3] = 0
+        self._main_splitter.setSizes(sizes)
+        self._ai_toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLORS['surface']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                padding: 6px 14px;
+                color: {COLORS['text_primary']};
+                font-weight: 600;
+                font-size: 11px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['surface_hover']};
+                border-color: #34785B;
+                color: #34785B;
+            }}
+        """)
 
-        self._ai_panel.setVisible(
-            self._ai_visible
-        )
+    @Slot()
+    def _open_racing_arena(self) -> None:
+        if self._racing_window is None:
+            self._racing_window = RacingArenaWindow()
+            self._racing_window.open_in_visualizer.connect(self._on_algorithm_selected)
+        self._racing_window.show()
+        self._racing_window.raise_()
+        self._racing_window.activateWindow()
+
+    def _on_sidebar_collapse(self, collapsed: bool) -> None:
+        sizes = self._main_splitter.sizes()
+        if collapsed:
+            sizes[0] = 56
+        else:
+            sizes[0] = 270
+        self._main_splitter.setSizes(sizes)
+
+    def _toggle_inspector_maximize(self) -> None:
+        sizes = self._main_splitter.sizes()
+        if sizes[2] > 400:
+            sizes[2] = 340
+        else:
+            sizes[2] = 520
+        self._main_splitter.setSizes(sizes)
 
     # ═══════════════════════════════════════════════════════════════
-    # PDF EXPORT
+    #  PDF EXPORT REPORT
     # ═══════════════════════════════════════════════════════════════
 
     def _export_pdf(self) -> None:
-        """
-        Export the current visualization information as a PDF.
-
-        The report contains:
-
-        - Algorithm / Data Structure
-        - Question
-        - User Input
-        - Target (for searching)
-        - Output
-        - Time Complexity
-        - Space Complexity
-        - Pseudocode
-        - Statistics
-        - Current Operation
-        """
-
-        # ---------------------------------------------------------
-        # Check algorithm selection
-        # ---------------------------------------------------------
-
+        """Export comprehensive study report with algorithm metadata, pseudocode, and metrics."""
         if not self._current_key:
-
-            QMessageBox.warning(
-                self,
-                "Export PDF",
-                "Please select an algorithm first."
-            )
-
+            QMessageBox.warning(self, "Export Report", "Please select an algorithm first.")
             return
 
-        info = ALGORITHM_REGISTRY.get(
-            self._current_key
-        )
-
+        info = ALGORITHM_REGISTRY.get(self._current_key)
         if info is None:
             return
 
-        # ---------------------------------------------------------
-        # Ask save location
-        # ---------------------------------------------------------
-
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export DSA Visualization",
+            "Export DSA Study Sheet",
             f"{info.name.replace(' ', '_')}_Report.pdf",
-            "PDF Files (*.pdf)"
+            "PDF Files (*.pdf)",
         )
-
         if not file_path:
             return
 
-        # ---------------------------------------------------------
-        # Generate PDF
-        # ---------------------------------------------------------
-
         try:
-
             from reportlab.lib.pagesizes import A4
             from reportlab.lib import colors
-
             from reportlab.platypus import (
                 SimpleDocTemplate,
                 Paragraph,
@@ -1257,19 +823,8 @@ class MainWindow(QMainWindow):
                 Table,
                 TableStyle,
             )
-
-            from reportlab.lib.styles import (
-                getSampleStyleSheet,
-                ParagraphStyle,
-            )
-
-            from reportlab.lib.enums import (
-                TA_CENTER,
-            )
-
-            # =====================================================
-            # DOCUMENT
-            # =====================================================
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.enums import TA_CENTER
 
             doc = SimpleDocTemplate(
                 file_path,
@@ -1281,499 +836,117 @@ class MainWindow(QMainWindow):
             )
 
             styles = getSampleStyleSheet()
-
-            title_style = styles["Title"]
-
-            title_style.alignment = TA_CENTER
-
-            heading_style = styles["Heading2"]
-
-            normal_style = styles["BodyText"]
-
-            # =====================================================
-            # CONTENT
-            # =====================================================
-
-            content = []
-
-            # =====================================================
-            # TITLE
-            # =====================================================
-
-            content.append(
-                Paragraph(
-                    "DSA Visualizer Report",
-                    title_style
-                )
+            title_style = ParagraphStyle(
+                "DocTitle",
+                parent=styles["Normal"],
+                fontName="Helvetica-Bold",
+                fontSize=22,
+                leading=26,
+                textColor=colors.HexColor("#0f172a"),
+                alignment=TA_CENTER,
+            )
+            sub_style = ParagraphStyle(
+                "SubTitle",
+                parent=styles["Normal"],
+                fontName="Helvetica",
+                fontSize=11,
+                leading=14,
+                textColor=colors.HexColor("#64748b"),
+                alignment=TA_CENTER,
+            )
+            h2_style = ParagraphStyle(
+                "Heading2",
+                parent=styles["Heading2"],
+                fontName="Helvetica-Bold",
+                fontSize=13,
+                leading=16,
+                textColor=colors.HexColor("#0284c7"),
+            )
+            body_style = ParagraphStyle(
+                "Body",
+                parent=styles["Normal"],
+                fontName="Helvetica",
+                fontSize=10,
+                leading=14,
+                textColor=colors.HexColor("#334155"),
+            )
+            code_style = ParagraphStyle(
+                "CodeStyle",
+                parent=styles["Normal"],
+                fontName="Courier",
+                fontSize=9,
+                leading=12,
+                textColor=colors.HexColor("#0f172a"),
             )
 
-            content.append(
-                Spacer(1, 15)
-            )
+            story = []
 
-            # =====================================================
-            # ALGORITHM
-            # =====================================================
+            # Header
+            story.append(Paragraph("DSA LAB • ALGORITHM STUDY REPORT", title_style))
+            story.append(Spacer(1, 4))
+            story.append(Paragraph(f"Generated for: {info.name}  •  {info.category.replace('_', ' ').title()}", sub_style))
+            story.append(Spacer(1, 16))
 
-            content.append(
-                Paragraph(
-                    f"<b>Algorithm / Data Structure:</b> "
-                    f"{info.name}",
-                    normal_style
-                )
-            )
-
-            content.append(
-                Spacer(1, 12)
-            )
-
-            # =====================================================
-            # QUESTION
-            # =====================================================
-
-            content.append(
-                Paragraph(
-                    "Question / Problem Statement",
-                    heading_style
-                )
-            )
-
-            question = self._current_question
-
-            if not question:
-
-                question = getattr(
-                    info,
-                    "question",
-                    ""
-                )
-
-            if not question:
-
-                question = (
-                    f"Use the {info.name} algorithm "
-                    f"to solve the given problem."
-                )
-
-            content.append(
-                Paragraph(
-                    question,
-                    normal_style
-                )
-            )
-
-            content.append(
-                Spacer(1, 15)
-            )
-
-            # =====================================================
-            # INPUT
-            # =====================================================
-
-            content.append(
-                Paragraph(
-                    "Input",
-                    heading_style
-                )
-            )
-
-            # Searching
-
-            if (
-                self._current_target is not None
-                and isinstance(
-                    self._current_input,
-                    list
-                )
-            ):
-
-                input_text = (
-                    f"<b>Array:</b> "
-                    f"{self._current_input}<br/>"
-                    f"<b>Target:</b> "
-                    f"{self._current_target}"
-                )
-
-            # Sorting
-
-            elif isinstance(
-                self._current_input,
-                list
-            ):
-
-                input_text = str(
-                    self._current_input
-                )
-
-            # Data structure
-
-            elif self._current_input is not None:
-
-                input_text = str(
-                    self._current_input
-                )
-
-            else:
-
-                input_text = (
-                    "No input has been provided."
-                )
-
-            content.append(
-                Paragraph(
-                    input_text,
-                    normal_style
-                )
-            )
-
-            content.append(
-                Spacer(1, 15)
-            )
-
-            # =====================================================
-            # OUTPUT
-            # =====================================================
-
-            content.append(
-                Paragraph(
-                    "Output",
-                    heading_style
-                )
-
-            )
-
-            output_text = self._format_output(
-                self._current_output
-            )
-
-            content.append(
-                Paragraph(
-                    output_text,
-                    normal_style
-                )
-            )
-
-            content.append(
-                Spacer(1, 15)
-            )
-
-            # =====================================================
-            # COMPLEXITY
-            # =====================================================
-
-            content.append(
-                Paragraph(
-                    f"<b>Time Complexity:</b> "
-                    f"{info.time_complexity}",
-                    normal_style
-                )
-            )
-
-            content.append(
-                Paragraph(
-                    f"<b>Space Complexity:</b> "
-                    f"{info.space_complexity}",
-                    normal_style
-                )
-            )
-
-            content.append(
-                Spacer(1, 15)
-            )
-
-            # =====================================================
-            # PSEUDOCODE
-            # =====================================================
-
-            content.append(
-                Paragraph(
-                    "Pseudocode",
-                    heading_style
-                )
-            )
-
-            for i, line in enumerate(
-                info.pseudocode
-            ):
-
-                # Escape special ReportLab characters
-
-                safe_line = (
-                    str(line)
-                    .replace(
-                        "&",
-                        "&amp;"
-                    )
-                    .replace(
-                        "<",
-                        "&lt;"
-                    )
-                    .replace(
-                        ">",
-                        "&gt;"
-                    )
-                )
-
-                content.append(
-                    Paragraph(
-                        f"{i + 1}. {safe_line}",
-                        normal_style
-                    )
-                )
-
-            content.append(
-                Spacer(1, 15)
-            )
-
-            # =====================================================
-            # STATISTICS
-            # =====================================================
-
-            comparisons = (
-                self
-                ._stats_panel
-                .card_comparisons
-                ._value
-                .text()
-            )
-
-            swaps = (
-                self
-                ._stats_panel
-                .card_swaps
-                ._value
-                .text()
-            )
-
-            # Change "Swaps" to "Shifts" for Insertion Sort
-
-            if info.name.lower() == "insertion sort":
-
-                second_metric_name = "Shifts"
-
-            else:
-
-                second_metric_name = "Swaps"
-
-            stats_data = [
-                [
-                    "Metric",
-                    "Value",
-                ],
-                [
-                    "Comparisons",
-                    comparisons,
-                ],
-                [
-                    second_metric_name,
-                    swaps,
-                ],
+            # Metadata Table
+            meta_data = [
+                [Paragraph("<b>Algorithm:</b>", body_style), Paragraph(info.name, body_style)],
+                [Paragraph("<b>Category:</b>", body_style), Paragraph(info.category.title(), body_style)],
+                [Paragraph("<b>Time Complexity:</b>", body_style), Paragraph(info.time_complexity, body_style)],
+                [Paragraph("<b>Space Complexity:</b>", body_style), Paragraph(info.space_complexity, body_style)],
+                [Paragraph("<b>Input Data:</b>", body_style), Paragraph(str(self._current_input or "N/A"), body_style)],
+                [Paragraph("<b>Final Result:</b>", body_style), Paragraph(self._format_output(self._current_output), body_style)],
             ]
+            meta_table = Table(meta_data, colWidths=[130, 380])
+            meta_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            story.append(meta_table)
+            story.append(Spacer(1, 14))
 
-            table = Table(
-                stats_data,
-                colWidths=[
-                    200,
-                    100,
-                ],
+            # Pseudocode
+            story.append(Paragraph("Algorithm Implementation / Pseudocode", h2_style))
+            story.append(Spacer(1, 6))
+
+            pseudo_text = "<br/>".join(
+                f"{i+1:2d}.  {line.replace(' ', '&nbsp;')}" for i, line in enumerate(info.pseudocode)
             )
+            story.append(Paragraph(pseudo_text, code_style))
+            story.append(Spacer(1, 16))
 
-            table.setStyle(
-                TableStyle(
-                    [
-                        (
-                            "BACKGROUND",
-                            (0, 0),
-                            (-1, 0),
-                            colors.lightgrey,
-                        ),
+            # Insights & Invariants
+            story.append(Paragraph("Core Invariants & Logic Analysis", h2_style))
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(info.description or "No additional description.", body_style))
 
-                        (
-                            "GRID",
-                            (0, 0),
-                            (-1, -1),
-                            0.5,
-                            colors.grey,
-                        ),
-
-                        (
-                            "FONTNAME",
-                            (0, 0),
-                            (-1, 0),
-                            "Helvetica-Bold",
-                        ),
-
-                        (
-                            "PADDING",
-                            (0, 0),
-                            (-1, -1),
-                            6,
-                        ),
-                    ]
-                )
-            )
-
-            content.append(
-                Paragraph(
-                    "Statistics",
-                    heading_style
-                )
-            )
-
-            content.append(
-                table
-            )
-
-            content.append(
-                Spacer(1, 15)
-            )
-
-            # =====================================================
-            # CURRENT OPERATION
-            # =====================================================
-
-            content.append(
-                Paragraph(
-                    "Current Operation",
-                    heading_style
-                )
-            )
-
-            description = (
-                self
-                ._stats_panel
-                .description_label
-                .text()
-            )
-
-            if not description:
-
-                description = (
-                    "No operation has been executed yet."
-                )
-
-            content.append(
-                Paragraph(
-                    description,
-                    normal_style
-                )
-            )
-
-            # =====================================================
-            # BUILD PDF
-            # =====================================================
-
-            doc.build(
-                content
-            )
-
-            # =====================================================
-            # SUCCESS
-            # =====================================================
-
-            QMessageBox.information(
-                self,
-                "Export Complete",
-                f"PDF successfully saved to:\n\n"
-                f"{file_path}"
-            )
+            doc.build(story)
+            QMessageBox.information(self, "Export Report", f"Report saved successfully to:\n{file_path}")
 
         except Exception as e:
+            QMessageBox.critical(self, "Export Report Failed", f"Could not generate PDF: {e}")
 
-            QMessageBox.critical(
-                self,
-                "Export Failed",
-                f"Could not create PDF:\n\n"
-                f"{str(e)}"
-            )
-
-    # ═══════════════════════════════════════════════════════════════
-    # FORMAT OUTPUT
-    # ═══════════════════════════════════════════════════════════════
-
-    def _format_output(
-        self,
-        output
-    ) -> str:
-        """
-        Convert the final Step data into readable PDF text.
-        """
-
+    def _format_output(self, output: Any) -> str:
         if output is None:
-
-            return "No output available."
-
-        # List output
-
-        if isinstance(
-            output,
-            list
-        ):
-
-            # Search output
-
+            return "Execution not started or pending."
+        if isinstance(output, list):
             if self._current_target is not None:
-
-                target = self._current_target
-
                 try:
-
-                    index = output.index(
-                        target
-                    )
-
-                    return (
-                        f"Target {target} found at "
-                        f"index {index}."
-                    )
-
+                    idx = output.index(self._current_target)
+                    return f"Target {self._current_target} found at index {idx}."
                 except ValueError:
-
-                    return (
-                        f"Target {target} was not found."
-                    )
-
-            # Sorting output
-
-            return str(
-                output
-            )
-
-        # Dictionary output
-
-        if isinstance(
-            output,
-            dict
-        ):
-
-            return str(
-                output
-            )
-
-        return str(
-            output
-        )
+                    return f"Target {self._current_target} not found in array."
+            return str(output)
+        return str(output)
 
 
-# ═══════════════════════════════════════════════════════════════════
-# HELPER FUNCTION
-# ═══════════════════════════════════════════════════════════════════
-
-def info_name(
-    key: str
-) -> str:
-    """
-    Convert an internal data-structure key into a readable name.
-    """
-
+def info_name(key: str) -> str:
     names = {
         "stack": "Stack",
         "queue": "Queue",
         "linked_list": "Singly Linked List",
         "bst": "Binary Search Tree",
     }
-
-    return names.get(
-        key,
-        key.replace("_", " ").title()
-    )
+    return names.get(key, key.replace("_", " ").title())

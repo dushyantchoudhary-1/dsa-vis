@@ -61,7 +61,7 @@ class _StatCard(QFrame):
 
         self._value = QLabel(initial)
         self._value.setFont(
-            QFont("Helvetica Neue", 18, QFont.Weight.Bold)
+            QFont("Segoe UI", 18, QFont.Weight.Bold)
         )
 
         self._value.setStyleSheet(
@@ -107,7 +107,7 @@ class StatsPanel(QWidget):
 
         title = QLabel("📈  STATISTICS")
         title.setFont(
-            QFont("Helvetica Neue", 12, QFont.Weight.Bold)
+            QFont("Segoe UI", 12, QFont.Weight.Bold)
         )
 
         title.setStyleSheet(
@@ -174,7 +174,7 @@ class StatsPanel(QWidget):
 
         cx_title = QLabel("⏱  COMPLEXITY")
         cx_title.setFont(
-            QFont("Helvetica Neue", 12, QFont.Weight.Bold)
+            QFont("Segoe UI", 12, QFont.Weight.Bold)
         )
 
         cx_title.setStyleSheet(
@@ -212,7 +212,7 @@ class StatsPanel(QWidget):
 
         desc_title = QLabel("💬  STEP INFO")
         desc_title.setFont(
-            QFont("Helvetica Neue", 12, QFont.Weight.Bold)
+            QFont("Segoe UI", 12, QFont.Weight.Bold)
         )
 
         desc_title.setStyleSheet(

@@ -40,7 +40,7 @@ class PseudocodePanel(QWidget):
         title_bar.setContentsMargins(0, 0, 0, 0)
 
         title = QLabel("📝  PSEUDOCODE")
-        title.setFont(QFont("Helvetica Neue", 12, QFont.Weight.Bold))
+        title.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         title.setStyleSheet(
             f"color: {COLORS['accent_cyan']}; padding: 4px 0 8px 0;"
         )

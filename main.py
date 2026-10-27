@@ -17,8 +17,8 @@ from app.theme import apply_theme
 def main() -> None:
     app = QApplication(sys.argv)
 
-    # Default font
-    font = QFont("Helvetica Neue", 11)
+    # Default font with Windows / cross-platform fallbacks
+    font = QFont("Segoe UI", 10)
     font.setStyleHint(QFont.StyleHint.SansSerif)
     app.setFont(font)
 
